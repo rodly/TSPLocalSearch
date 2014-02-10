@@ -1,5 +1,5 @@
 all:
-	clang++ -stdlib=libc++ main.cpp -o tour
+	g++ -std=c++11 main.cpp -o tour
 
 clean:
 	rm -f tour
