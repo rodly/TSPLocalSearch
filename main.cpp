@@ -11,11 +11,152 @@
 #include <cstdlib>
 #include <unordered_set>
 
-const int num_cities_c = 25;
-
 using namespace std;
 
+const int num_cities_c = 25;
+
+struct TourData
+{
+	double avg_cost,
+		   lowest_cost,
+		   runs_below_threshold;
+
+	vector<double> optimal_tour;  
+};
+
+TourData steepestDescentLocalSearch(const vector<vector<double>> & costs, vector<double> tour, deque<vector<double>> (*successor_func)(const vector<double> &), const int & num_runs, const int & num_random_restarts, const double & threshold);
 void printTour(const vector<double> & tour);
+vector<double> genRandomTour(const int & num_cities);
+vector<double> genTour(const int & num_cities);
+deque<vector<double>> citySwapSuccessors(const vector<double> & tour);
+deque<vector<double>> twoOptSuccessors(const vector<double> & tour);
+vector<double> genSubstring(const vector<double> & tour, int sub_start, int sub_end);
+vector<vector<double>> readCityMatrix(ifstream & fin);
+void printCostMatrix(const vector<vector<double>> & costs);
+vector<double> getOptimalTour(const vector<vector<double>> & costs, const deque<vector<double>> & tours);
+double getTourCost(const vector<vector<double>> & costs, const vector<double> & tour);
+
+int main(int argc, char * argv[])
+{	
+	srand(time(NULL));	
+
+	// read-in cost symmetric matrix
+	ifstream fin("cities.txt");
+	auto costs = readCityMatrix(fin);
+	fin.close();
+
+	//printCostMatrix();
+
+	// A. 
+	const auto std_tour = genTour(num_cities_c);	
+	printTour(std_tour);
+	cout << "cost: " << getTourCost(costs, std_tour) << endl;
+
+	// B. 10,000 random tour stats
+	cout << endl;	
+	const int sample_size_c = 10000;	
+	double lowest_cost = numeric_limits<double>::max();	
+	double average_cost = 0;
+
+	for (int i = 0; i < sample_size_c; i++)
+	{
+		auto cur_tour = genRandomTour(num_cities_c);
+		double tour_cost = getTourCost(costs, cur_tour);
+
+		if (tour_cost < lowest_cost)
+			lowest_cost = tour_cost;
+
+		average_cost += tour_cost;
+	}
+
+	average_cost /= sample_size_c;	
+	cout <<	sample_size_c << " random tours: " << endl;
+	cout << "sample size: " << sample_size_c << ", lowest tour cost: " << lowest_cost << ", average cost: " << average_cost << endl;
+
+	// C. City Swap successor function on tour [0, 24] 
+	cout << endl;	
+	auto city_swap_successors = citySwapSuccessors(std_tour);
+	auto tour = getOptimalTour(costs, city_swap_successors);
+
+	printTour(std_tour);
+	cout << "has optimal City Swap successor: " << endl;
+	printTour(tour);	
+	cout << "with tour cost: " << lowest_cost << endl;
+
+	// D. 2-Opt successor function on tour [0, 24] 
+	cout << endl;	
+	auto two_opt_successors = twoOptSuccessors(std_tour);
+	tour = getOptimalTour(costs, two_opt_successors);
+
+	printTour(std_tour);
+	cout << "has optimal 2-Opt successor: " << endl;
+	printTour(tour);	
+	cout << "with tour cost: " << lowest_cost << endl;
+
+	// E. 50 iterations of City Swap hill-climbing local search
+	cout << endl;	
+	TourData td = steepestDescentLocalSearch(costs, std_tour, citySwapSuccessors, 1, 1, 0);
+
+	cout << "50 iterations starting with initial tour [0, 24] (City Swap successors) has optimal tour: " << endl;
+	printTour(td.optimal_tour);
+	cout << "with cost: " << getTourCost(costs, td.optimal_tour) << endl;
+
+	return 0;
+}
+
+// returns tour data for num_runs with num_random_restarts on the initial 'tour' given a successor function
+TourData steepestDescentLocalSearch(const vector<vector<double>> & costs, vector<double> tour, deque<vector<double>> (*successor_func)(const vector<double> &), const int & num_runs, const int & num_random_restarts, const double & threshold)
+{
+	TourData td;
+	td.lowest_cost = numeric_limits<double>::max();
+	const int iters_c = 50;
+
+	for (int run = 0; run < num_runs; run++)
+	{
+		bool below_threshold = false;
+
+		for (int cur_restart = 0; cur_restart < num_random_restarts; cur_restart++)
+		{
+			if (cur_restart != 0)
+				tour = genRandomTour(num_cities_c);
+
+			for (int iter = 0; iter < iters_c; iter++)
+			{
+				auto successors = successor_func(tour);			
+				tour = getOptimalTour(costs, successors);
+
+				const auto tour_cost = getTourCost(costs, tour);
+
+				td.avg_cost += tour_cost;
+
+				// threshold per run tracking	
+				if (!below_threshold && getTourCost(costs, tour) < threshold)
+				{
+					td.runs_below_threshold++;
+					below_threshold = true;
+				}
+
+				// lowest cost tracking
+				if (tour_cost < td.lowest_cost)
+				{
+					td.lowest_cost = tour_cost;	
+					td.optimal_tour = tour;
+				}
+			}
+		}
+	}
+	
+	td.avg_cost /= num_runs;
+	return td;
+}
+
+void printTour(const vector<double> & tour)
+{
+	for (const auto & city : tour)
+		cout << city << " ";
+
+	cout << endl;
+}
 
 // generates a tour randomly from [0, num_cities)
 vector<double> genRandomTour(const int & num_cities)
@@ -23,8 +164,6 @@ vector<double> genRandomTour(const int & num_cities)
 	unordered_set<double> cities_generated;	
 	vector<double> tour;
 	tour.reserve(num_cities);
-
-	srand(time(NULL));	
 
 	while (tour.size() < num_cities)
 	{
@@ -55,14 +194,10 @@ vector<double> genTour(const int & num_cities)
 double getTourCost(const vector<vector<double>> & costs, const vector<double> & tour)
 {
 	double totalCost = 0;
-	cout << endl;
 
 	// for each consecutive city i and j add distance between them to total cost
 	for (int i = 0; i < tour.size() - 1; i++)
-	{
-		cout << i << " to " << i + 1 << " = " << costs[tour[i]][tour[i + 1]] << endl;
 		totalCost += costs[tour[i]][tour[i + 1]];
-	}
 
 	// last city back to first city
 	totalCost += costs[tour.back()][tour[0]];
@@ -89,7 +224,6 @@ deque<vector<double>> citySwapSuccessors(const vector<double> & tour)
 }
 
 // reverse all substrings of length > 1 
-vector<double> genSubstring(const vector<double> & tour, int sub_start, int sub_end);
 deque<vector<double>> twoOptSuccessors(const vector<double> & tour)
 {
 	deque<vector<double>> successors;
@@ -141,8 +275,9 @@ vector<vector<double>> readCityMatrix(ifstream & fin)
 
 			matrix[i][j] = val;
 
-			// ignore commas
-			fin.ignore(256, ',');
+			// consume non-digits
+			while (isspace(fin.peek()) || fin.peek() == ',')
+				fin.get();
 
 			// edge case that i'm too sick to deal with right now
 			if (fin.eof())
@@ -153,28 +288,8 @@ vector<vector<double>> readCityMatrix(ifstream & fin)
 	return matrix;
 }
 
-int main(int argc, char * argv[])
-{	
-	/* debugging purposes, prints successors using City Swap and 2-Opt successor functions for tour 1-2-3-4 
-	vector<double> vec {1, 2, 3, 4};
-
-	//auto res = citySwapSuccessors(vec);
-	auto res = twoOptSuccessors(vec);
-
-	for (const auto & each : res)
-	{
-		for (const auto & i : each)
-			cout << i << " ";
-		cout << endl;
-	}
-	*/
-
-	// read-in cost symmetric matrix
-	ifstream fin("cities.txt");
-	auto costs = readCityMatrix(fin);
-	fin.close();
-
-	//* debugging purposes, prints cost matrix 
+void printCostMatrix(const vector<vector<double>> & costs)
+{
 	cout << "cities.csv : " << endl;
 	for (const auto & row : costs)
 	{
@@ -183,22 +298,23 @@ int main(int argc, char * argv[])
 
 		cout << endl;
 	}
-
-	auto x = genTour(num_cities_c);
-	auto y = genRandomTour(num_cities_c);	
-
-	printTour(genTour(3));
-	printTour(y);	
-
-	cout << "(0, 1, 2) tour cost = " << getTourCost(costs, genTour(3)) << endl;
-
-	return 0;
 }
 
-void printTour(const vector<double> & tour)
+vector<double> getOptimalTour(const vector<vector<double>> & costs, const deque<vector<double>> & tours)
 {
-	for (const auto & city : tour)
-		cout << city << " ";
+	const vector<double> * optimal_tour;
+	double lowest_cost = numeric_limits<double>::max();
 
-	cout << endl;
+	for (const auto & tour : tours)
+	{
+		auto tour_cost = getTourCost(costs, tour);
+
+		if (tour_cost < lowest_cost)
+		{
+			optimal_tour = &tour;
+			lowest_cost = tour_cost;
+		}
+	}
+
+	return *optimal_tour;
 }
