@@ -101,6 +101,27 @@ int main(int argc, char * argv[])
 	printTour(td.optimal_tour);
 	cout << "with cost: " << getTourCost(costs, td.optimal_tour) << endl;
 
+	// F. i = 1 random restart, ii = 10 random restarts 
+	cout << endl;	
+	int num_restarts = 1;	
+	const int num_runs = 100;
+	const int threshold = 320;
+
+	td = steepestDescentLocalSearch(costs, genRandomTour(num_cities_c), citySwapSuccessors, num_runs, num_restarts, threshold);
+	cout << "restarts = " << num_restarts << ", # of runs below 320 = " << td.runs_below_threshold << endl;
+
+	num_restarts = 10;
+
+	td = steepestDescentLocalSearch(costs, genRandomTour(num_cities_c), citySwapSuccessors, num_runs, num_restarts, threshold);
+	cout << "restarts = " << num_restarts << ", # of runs below 320 = " << td.runs_below_threshold << endl;
+
+	// H.
+	cout << "10 random restarts, avg cost using City Swap successor function = " << td.avg_cost << endl;
+
+	// I. 
+	td = steepestDescentLocalSearch(costs, genRandomTour(num_cities_c), twoOptSuccessors, num_runs, num_restarts, threshold);
+	cout << "10 random restarts, avg cost using 2-Opt successor function = " << td.avg_cost << endl;
+
 	return 0;
 }
 
@@ -110,27 +131,29 @@ TourData steepestDescentLocalSearch(const vector<vector<double>> & costs, vector
 	TourData td;
 	td.lowest_cost = numeric_limits<double>::max();
 	const int iters_c = 50;
+	bool below_threshold = false;
 
 	for (int run = 0; run < num_runs; run++)
 	{
-		bool below_threshold = false;
+		below_threshold = false;
 
 		for (int cur_restart = 0; cur_restart < num_random_restarts; cur_restart++)
 		{
-			if (cur_restart != 0)
-				tour = genRandomTour(num_cities_c);
+			tour = genRandomTour(num_cities_c);
 
 			for (int iter = 0; iter < iters_c; iter++)
 			{
+				/* run 50 iterations of getting successors for a given tour, 
+				 * finding the optimal tour in each of those, 
+				 * add to an avg var and keep track of below threshold runs and overall lowest cost tracking */
+
 				auto successors = successor_func(tour);			
 				tour = getOptimalTour(costs, successors);
 
 				const auto tour_cost = getTourCost(costs, tour);
 
-				td.avg_cost += tour_cost;
-
 				// threshold per run tracking	
-				if (!below_threshold && getTourCost(costs, tour) < threshold)
+				if (!below_threshold && tour_cost < threshold)
 				{
 					td.runs_below_threshold++;
 					below_threshold = true;
@@ -144,6 +167,8 @@ TourData steepestDescentLocalSearch(const vector<vector<double>> & costs, vector
 				}
 			}
 		}
+
+		td.avg_cost += td.lowest_cost;
 	}
 	
 	td.avg_cost /= num_runs;
